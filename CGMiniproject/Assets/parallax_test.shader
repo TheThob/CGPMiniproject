@@ -4,7 +4,8 @@
 	{
 		_MainTex("Texture", 2D) = "white" {}
 		_Height("Height", 2D) = "white" {}
-		_Parallax("Parallax", Range(0,0.1)) = 0
+		_Parallax("Parallax", Range(0,0.2)) = 0
+		_bias("Parallax_bias", Range(0,0.2)) = 0
 	}
 		SubShader
 		{
@@ -23,8 +24,9 @@
 				sampler2D _MainTex;
 				sampler2D _Height;
 				float _Parallax;
-				float4 _MainTex_ST;
-				float4 _Height_ST;
+				float _bias;
+				float4 _MainTex_ST;// Needed for TRANSFORM_TEX(v.texcoord, _MainTex)
+				float4 _Height_ST; // Needed for TRANSFORM_TEX(v.texcoord, _Height)
 
 				struct appdata
 				{
@@ -43,39 +45,42 @@
 					float3 tangentViewDir : TEXCOORD2;
 				};
 
-				float2 ParallaxOffsetCalc(half h, half height, half3 viewDir)
+
+				float2 ParallaxOffsetCalc(half h, half Parallax, half3 viewDir, half3 _bias)
 				{
-					h = h * height - height / 2.0;
 					float3 v = normalize(viewDir);
-					v.z += 0.42;
-					return h * (v.xy / v.z);
+					return (v.xy * ((h) * Parallax + _bias));
 				}
-
-
-				v2f vert(appdata v)
+				v2f vert(appdata v) 
 				{
 					v2f o;
 					o.vertex = UnityObjectToClipPos(v.vertex);
 					o.uv_MainTex = TRANSFORM_TEX(v.uv_MainTex, _MainTex);
 					o.uv_HeightTex = TRANSFORM_TEX(v.uv_HeightTex, _Height);
 
-					//Transform the view direction from world space to tangent space			
-					float3 worldVertexPos = mul(unity_ObjectToWorld, v.vertex).xyz;
-					float3 worldViewDir = worldVertexPos - _WorldSpaceCameraPos;
+					float4 objCam = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0));
+					float3 viewDir = v.vertex.xyz - objCam.xyz;
 
-					float3 worldNormal = UnityObjectToWorldNormal(v.normal);
-					float3 worldTangent = UnityObjectToWorldDir(v.tangent.xyz);
-					float3 worldBitangent = cross(worldNormal, worldTangent) *  v.tangent.w * unity_WorldTransformParams.w;
+					float tangentSign = v.tangent.w * unity_WorldTransformParams.w;
+					float3 bitangent = cross(v.normal.xyz, v.tangent.xyz) * tangentSign;
 
-					//Use dot products instead of building the matrix
-					o.tangentViewDir = float3(dot(worldViewDir, worldTangent),dot(worldViewDir, worldNormal),dot(worldViewDir, worldBitangent));
+					o.tangentViewDir = float3(
+						dot(viewDir, v.tangent.xyz),
+						dot(viewDir, bitangent.xyz),
+						dot(viewDir, v.normal.xyz)
+						);
 					return o;
 				}
 
 				float3 frag(v2f i) : SV_Target
 				{
-					float heightTex = tex2D(_Height, i.uv_HeightTex).r;
-					float2 parallaxOffset = ParallaxOffsetCalc(heightTex, _Parallax, i.tangentViewDir);
+					float heightTex = tex2D(_Height, i.uv_HeightTex).r *-1;
+
+					/*float h = ((heightTex * _Parallax - _Parallax / 2.0)*-1)+_bias;
+					float3 v = normalize(i.tangentViewDir);
+					float2	parallaxOffset = (h * v.xy);*/
+					float2 parallaxOffset = ParallaxOffsetCalc(heightTex, _Parallax, i.tangentViewDir, _bias);
+
 					float3 col = tex2D(_MainTex, i.uv_MainTex + parallaxOffset);
 					return col;
 				}
