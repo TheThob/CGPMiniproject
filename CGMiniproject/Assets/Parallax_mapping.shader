@@ -1,68 +1,91 @@
-﻿Shader "Custom/ParallaxShader" {
-	Properties{
-		_Color("Color", Color) = (1,1,1,1)
-		_MainTex("Albedo (RGB)", 2D) = "white" {}
-		_Normal("Normal", 2D) = "bump" {}
+﻿Shader "parallax_mapping"
+{
+	Properties
+	{
+		_MainTex("Texture", 2D) = "white" {}
 		_Height("Height", 2D) = "white" {}
-		_Glossiness("Smoothness", Range(0,1)) = 0.5
-		_Metallic("Metallic", Range(0,1)) = 0.0
-		_Parallax("Parallax", Range(0,0.1)) = 0
+		_Parallax("Parallax", Range(0,0.2)) = 0
+		_bias("Parallax_bias", Range(0,0.2)) = 0
 	}
-		SubShader{
+		SubShader
+		{
 			Tags { "RenderType" = "Opaque" }
-			LOD 200
+			LOD 100
 
-			CGPROGRAM
-			// Physically based Standard lighting model, and enable shadows on all light types
-			#pragma surface surf Standard fullforwardshadows
-
-			// Use shader model 3.0 target, to get nicer looking lighting
-			#pragma target 3.0
-
-			sampler2D _MainTex;
-			sampler2D _Normal;
-			sampler2D _Height;
-
-			struct Input {
-				float2 uv_MainTex;
-				float2 uv_Normal;
-				float2 uv_Height;
-				float3 viewDir;
-			};
-
-			half _Glossiness;
-			half _Metallic;
-			fixed4 _Color;
-			float _Parallax;
-
-			float2 ParallaxOffset2(half h, half height, half3 viewDir)
+			Pass
 			{
-				h = h * height - height / 2.0;
-				float3 v = normalize(viewDir);
-				v.z += 0.42;
-				return h * (v.xy / v.z);
-			}
+				CGPROGRAM
 
-			// Add instancing support for this shader. You need to check 'Enable Instancing' on materials that use the shader.
-			// See https://docs.unity3d.com/Manual/GPUInstancing.html for more information about instancing.
-			// #pragma instancing_options assumeuniformscaling
-			UNITY_INSTANCING_BUFFER_START(Props)
-				// put more per-instance properties here
-			UNITY_INSTANCING_BUFFER_END(Props)
+				#pragma vertex vert
+				#pragma fragment frag
+				#include "UnityCG.cginc"
 
-			void surf(Input IN, inout SurfaceOutputStandard o) {
-				// Albedo comes from a texture tinted by color
-				float heightTex = tex2D(_Height, IN.uv_Height).r;
-				float2 parallaxOffset = ParallaxOffset2(heightTex, _Parallax, IN.viewDir);
-				fixed4 c = tex2D(_MainTex, IN.uv_MainTex + parallaxOffset) * _Color;
-				o.Normal = UnpackNormal(tex2D(_Normal, IN.uv_Normal + parallaxOffset));
-				o.Albedo = c.rgb;
-				// Metallic and smoothness come from slider variables
-				o.Metallic = _Metallic;
-				o.Smoothness = _Glossiness;
-				o.Alpha = c.a;
+
+				sampler2D _MainTex;
+				sampler2D _Height;
+				float _Parallax;
+				float _bias;
+				float4 _MainTex_ST;// Needed for TRANSFORM_TEX(v.texcoord, _MainTex)
+				float4 _Height_ST; // Needed for TRANSFORM_TEX(v.texcoord, _Height)
+
+				struct appdata
+				{
+					float4 vertex : POSITION;
+					float2 uv_MainTex : TEXCOORD0;
+					float2 uv_HeightTex : TEXCOORD1;
+					float3 normal : NORMAL;
+					float4 tangent : TANGENT;
+				};
+
+				struct v2f
+				{
+					float2 uv_MainTex : TEXCOORD0;
+					float2 uv_HeightTex : TEXCOORD1;
+					float4 vertex : SV_POSITION;
+					float3 tangentViewDir : TEXCOORD2;
+				};
+
+
+				float2 ParallaxOffsetCalc(half h, half Parallax, half3 viewDir, half3 _bias)
+				{
+					float3 v = normalize(viewDir);
+					return (v.xy * ((h) * Parallax + _bias));
+				}
+				v2f vert(appdata v) 
+				{
+					v2f o;
+					o.vertex = UnityObjectToClipPos(v.vertex);
+					o.uv_MainTex = TRANSFORM_TEX(v.uv_MainTex, _MainTex);
+					o.uv_HeightTex = TRANSFORM_TEX(v.uv_HeightTex, _Height);
+
+					float4 objCam = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0));
+					float3 viewDir = v.vertex.xyz - objCam.xyz;
+
+					float tangentSign = v.tangent.w * unity_WorldTransformParams.w;
+					float3 bitangent = cross(v.normal.xyz, v.tangent.xyz) * tangentSign;
+
+					o.tangentViewDir = float3(
+						dot(viewDir, v.tangent.xyz),
+						dot(viewDir, bitangent.xyz),
+						dot(viewDir, v.normal.xyz)
+						);
+					return o;
+				}
+
+				float3 frag(v2f i) : SV_Target
+				{
+					float heightTex = tex2D(_Height, i.uv_HeightTex).r *-1;
+
+					/*float h = ((heightTex * _Parallax - _Parallax / 2.0)*-1)+_bias;
+					float3 v = normalize(i.tangentViewDir);
+					float2	parallaxOffset = (h * v.xy);*/
+					float2 parallaxOffset = ParallaxOffsetCalc(heightTex, _Parallax, i.tangentViewDir, _bias);
+
+					float3 col = tex2D(_MainTex, i.uv_MainTex + parallaxOffset);
+					return col;
+				}
+				ENDCG
 			}
-			ENDCG
 		}
 			FallBack "Diffuse"
 }

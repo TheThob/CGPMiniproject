@@ -1,6 +1,4 @@
-﻿// Upgrade NOTE: replaced '_Object2World' with 'unity_ObjectToWorld'
-
-// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
+﻿// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
 
 Shader "parallax mapping Normalmap" {
 	Properties{
@@ -46,7 +44,6 @@ Shader "parallax mapping Normalmap" {
 					float4 _SpecColor;
 					float _Shininess;
 
-
 					struct appdata
 					{
 						//textures
@@ -64,27 +61,22 @@ Shader "parallax mapping Normalmap" {
 						float2 uv : TEXCOORD0;
 
 						//postions
+						float3 lightDir : TEXCOORD3;
 						float4 vertex : SV_POSITION;
 
 
-						//light direction
-						float3 lightDir : TEXCOORD1;
-						
-						// view directions
-						float3 viewDir : TEXCOORD2;
-						float3 tangentViewDir: TEXCOORD3;
-		
+						float3 viewDir : TEXCOORD4;
 
-						float3 Plane_WorldNormal : Normal;
-						float3x3 TBN: TEXCOORD4;
+						float3 tangentViewDir: TEXCOORD8;
+						float3 normal : NORMAL;
 					};
 
 					float2 ParallaxOffsetCalc(half3 viewDir, float2 uv)
 					{
 						// inverted because a value 1 (white) time 0-1 gets smaller.
-						float depth = tex2D(_Height, uv).r *-1;
+						float depth = tex2D(_Height, uv).r *-1; 
 						float h = (depth* _Parallax) + _bias;
-						return (viewDir.xy * h) + uv;
+					    return (viewDir.xy * h)+ uv;
 						//return ((v.xy * ((h* _Parallax) + _bias))/v.z) + uv;
 					}
 
@@ -93,13 +85,11 @@ Shader "parallax mapping Normalmap" {
 						return ((UNITY_LIGHTMODEL_AMBIENT.rgb * _Color.rgb) * attenuation);
 					}
 
-					float3 diffuse_Reflection(float attenuation, float3 normalDirection, float3 lightDirection, float3 TNormal, float3 lightT) {
+					float3 diffuse_Reflection(float attenuation, float3 normalDirection, float3 lightDirection) {
 						//Diffuse component
-						//float3 normalPlane_light = (attenuation *_LightColor0.rgb * _Color.rgb * (max(0.0, dot(normalDirection, lightDirection))));
-						float3 NormalMapLighting = (attenuation *_LightColor0.rgb * _Color.rgb * max(0.0, dot(TNormal, lightT)));
-						return NormalMapLighting;
+						return (attenuation * _LightColor0.rgb * _Color.rgb * max(0.0, dot(normalDirection, lightDirection)));
 					}
-					float3 specular_Reflection(float3 lightDirection, float attenuation, float3 normalDirection, float3 viewDirection) {
+					float3 specular_Reflection(float3 lightDirection, float attenuation, float3 normalDirection, float3 viewDirection){
 						if (dot(normalDirection, lightDirection) < 0.0) //Light on the wrong side - no specular
 						{
 							return float3(0.0, 0.0, 0.0);
@@ -123,17 +113,9 @@ Shader "parallax mapping Normalmap" {
 
 
 						// Calculate lightdir
-						//world to tangent space
-						float3 N = mul((float3x3)unity_ObjectToWorld, v.normal); // You don't want to use the translation part on a direction
-						float3 T = mul((float3x3)unity_ObjectToWorld, v.tangent.xyz); // Same here
-						float3 B = cross(N, T) * v.tangent.w; // The w component contains the handedness sign in Unity
-						o.TBN = float3x3(T, B, N);
-						//o.TBN_T = transpose(worldToTangent);
-
-
-
-						//float3 posWorld = mul(unity_ObjectToWorld, v.vertex.xyz);
+						float4 posWorld = mul(unity_ObjectToWorld, v.vertex.xyz); 
 						o.lightDir = normalize(_WorldSpaceLightPos0.xyz);//DIRECTIONAL Light
+						
 						
 						float4 objCam = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0));
 						o.viewDir = v.vertex.xyz - objCam.xyz;
@@ -145,54 +127,48 @@ Shader "parallax mapping Normalmap" {
 							dot(o.viewDir, bitangent.xyz),
 							dot(o.viewDir, v.normal.xyz)
 							);
-						o.Plane_WorldNormal = mul(unity_ObjectToWorld, v.normal.xyz);
+						o.normal = v.normal.xyz;
+
 						return o;
 					}
 
 					fixed4 frag(v2f i) : COLOR
 					{
-						float3x3 TBN_T = transpose(i.TBN);
+
 						// parallax mapping
-						
 						float2 newT = ParallaxOffsetCalc(i.tangentViewDir, i.uv);
+
 
 						float3 tex_albedo = tex2D(_MainTex, newT);
 
 
 						// normal vector in tangen space
-						float3 TangentNormal = tex2D(_NormalMap, newT).rgb;
-						TangentNormal = normalize(TangentNormal * 2 - 1);// remap to 0-1
-						float3 worldNormal = normalize(mul(TBN_T, TangentNormal));
-						
+						float3 TangentNormal = tex2D(_NormalMap, newT).xyz;
+						// remap to 0-1
+						TangentNormal = normalize(TangentNormal * 2- 1);
+																	
 
-						
-						float attenuation = 1; // no attenuation
+						float attenuation = 1.0; // no attenuation
 						float3 lightDirection = normalize(i.lightDir);
-						float3 lightDirectionT = normalize(mul(i.TBN, lightDirection));
-
-						/* lighting */
-						float3 ambientLighting = Ambient_Lighting(attenuation);
-
-						float3 color;
-						if (dot(i.Plane_WorldNormal, lightDirection) > 0) {
-							// I_diffuse = I_incoming *K_diffuse *max(0,dot(NORMAL,-LIGHTDIRECTING))
-							float3 diffuseReflection = diffuse_Reflection(attenuation, i.Plane_WorldNormal, lightDirection, TangentNormal, lightDirectionT);
 
 
-							//Reflection = 2N*(N -> dot L)- L
-							// I_specular = I_incoming* K_speccular * max(0,Reflection, viewDirection)^Shininess
-							//float3 specularReflection = specular_Reflection(lightDirection, attenuation, TangentNormal, i.tangentViewDir);
-							color = ((ambientLighting + diffuseReflection) * tex_albedo);// +specularReflection); //Texture is not applient on specularReflection
-						}
-						else {
-							color = ambientLighting * tex_albedo;
-						}
+						
+						float3 ambientLighting = Ambient_Lighting(1);
+						// I_diffuse = I_incoming *K_diffuse *max(0,dot(NORMAL,-LIGHTDIRECTING))
+						float3 diffuseReflection = diffuse_Reflection(attenuation, i.normal, lightDirection);
 
+
+						//Reflection = 2N*(N -> dot L)- L
+						// I_specular = I_incoming* K_speccular * max(0,Reflection, viewDirection)^Shininess
+						float3 specularReflection = specular_Reflection(lightDirection, attenuation, TangentNormal, i.tangentViewDir);
+						
+
+						float3 color = ((ambientLighting + diffuseReflection) * tex_albedo + specularReflection); //Texture is not applient on specularReflection
 						return float4(color, 1.0);
 					}
 				ENDCG
 			}
 		}
 
-			FallBack "Diffuse"
+		FallBack "Diffuse"
 }
