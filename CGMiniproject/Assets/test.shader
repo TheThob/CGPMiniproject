@@ -76,7 +76,9 @@ Shader "parallax mapping Normalmap" {
 		
 
 						float3 Plane_WorldNormal : Normal;
+						
 						float3x3 TBN: TEXCOORD4;
+						//float3 normal : TEXCOORD5;
 					};
 
 					float2 ParallaxOffsetCalc(half3 viewDir, float2 uv)
@@ -97,7 +99,7 @@ Shader "parallax mapping Normalmap" {
 						//Diffuse component
 						//float3 normalPlane_light = (attenuation *_LightColor0.rgb * _Color.rgb * (max(0.0, dot(normalDirection, lightDirection))));
 						float3 NormalMapLighting = (attenuation *_LightColor0.rgb * _Color.rgb * max(0.0, dot(TNormal, lightT)));
-						return NormalMapLighting;
+						return NormalMapLighting;// +normalPlane_light;
 					}
 					float3 specular_Reflection(float3 lightDirection, float attenuation, float3 normalDirection, float3 viewDirection) {
 						if (dot(normalDirection, lightDirection) < 0.0) //Light on the wrong side - no specular
@@ -128,7 +130,7 @@ Shader "parallax mapping Normalmap" {
 						float3 T = mul((float3x3)unity_ObjectToWorld, v.tangent.xyz); // Same here
 						float3 B = cross(N, T) * v.tangent.w; // The w component contains the handedness sign in Unity
 						o.TBN = float3x3(T, B, N);
-						//o.TBN_T = transpose(worldToTangent);
+						
 
 
 
@@ -145,7 +147,8 @@ Shader "parallax mapping Normalmap" {
 							dot(o.viewDir, bitangent.xyz),
 							dot(o.viewDir, v.normal.xyz)
 							);
-						o.Plane_WorldNormal = mul(unity_ObjectToWorld, v.normal.xyz);
+						o.Plane_WorldNormal = v.normal.xyz;
+						
 						return o;
 					}
 
@@ -160,9 +163,12 @@ Shader "parallax mapping Normalmap" {
 
 
 						// normal vector in tangen space
-						float3 TangentNormal = tex2D(_NormalMap, newT).rgb;
-						TangentNormal = normalize(TangentNormal * 2 - 1);// remap to 0-1
-						float3 worldNormal = normalize(mul(TBN_T, TangentNormal));
+						float3 TangentNormal = float3(0,0,0);
+						TangentNormal.xy = tex2D(_NormalMap, newT).wy *2 - 1;// remap to 0-1
+						TangentNormal.z = sqrt(1-saturate(dot(TangentNormal.xy,TangentNormal.xy)));
+						TangentNormal = TangentNormal.xzy;
+						TangentNormal = mul((float3x3)unity_ObjectToWorld, TangentNormal);
+						//float3 worldNormal = normalize(mul(TBN_T, TangentNormal));
 						
 
 						
@@ -173,21 +179,16 @@ Shader "parallax mapping Normalmap" {
 						/* lighting */
 						float3 ambientLighting = Ambient_Lighting(attenuation);
 
-						float3 color;
-						if (dot(i.Plane_WorldNormal, lightDirection) > 0) {
-							// I_diffuse = I_incoming *K_diffuse *max(0,dot(NORMAL,-LIGHTDIRECTING))
-							float3 diffuseReflection = diffuse_Reflection(attenuation, i.Plane_WorldNormal, lightDirection, TangentNormal, lightDirectionT);
+						
+						// I_diffuse = I_incoming *K_diffuse *max(0,dot(NORMAL,-LIGHTDIRECTING))
+						float3 diffuseReflection = diffuse_Reflection(attenuation,i.Plane_WorldNormal, lightDirection, TangentNormal, lightDirection);
 
 
-							//Reflection = 2N*(N -> dot L)- L
-							// I_specular = I_incoming* K_speccular * max(0,Reflection, viewDirection)^Shininess
-							//float3 specularReflection = specular_Reflection(lightDirection, attenuation, TangentNormal, i.tangentViewDir);
-							color = ((ambientLighting + diffuseReflection) * tex_albedo);// +specularReflection); //Texture is not applient on specularReflection
-						}
-						else {
-							color = ambientLighting * tex_albedo;
-						}
-
+						//Reflection = 2N*(N -> dot L)- L
+						// I_specular = I_incoming* K_speccular * max(0,Reflection, viewDirection)^Shininess
+						//float3 specularReflection = specular_Reflection(lightDirection, attenuation, TangentNormal, i.tangentViewDir);
+						float3 color = ((ambientLighting + diffuseReflection) * tex_albedo);// +specularReflection); //Texture is not applient on specularReflection
+						
 						return float4(color, 1.0);
 					}
 				ENDCG
