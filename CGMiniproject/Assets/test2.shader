@@ -1,11 +1,8 @@
-﻿// Upgrade NOTE: replaced '_Object2World' with 'unity_ObjectToWorld'
-
-// Upgrade NOTE: replaced 'mul(UNITY_MATRIX_MVP,*)' with 'UnityObjectToClipPos(*)'
-
-Shader "parallax mapping Normalmap" {
+﻿Shader "parallax mapping Normalmap2" {
 	Properties{
 		[Header(Color and Main Texture)]
 		_Color("Color", Color) = (1, 1, 1, 1) //The color of our object
+		_Color2("defluse Color", Color) = (1, 1, 1, 1) //The color of our object
 		_MainTex("Main Texture", 2D) = "white" {}
 
 		[Header(Parallax Mapping)]
@@ -15,7 +12,7 @@ Shader "parallax mapping Normalmap" {
 
 		[Header(Lighting Settings)]
 		_NormalMap("Normal Map", 2D) = "white" {}
-		_Shininess("Shininess", Float) = 10 //Shininess
+		_Shininess("Shininess", Range(0,200)) = 10 //Shininess
 		_SpecColor("Specular Color", Color) = (1, 1, 1, 1) //Specular highlights color
 
 	}
@@ -32,6 +29,7 @@ Shader "parallax mapping Normalmap" {
 					#include "UnityCG.cginc" //Provides us with light data, camera information, etc
 
 					float4 _Color; //Use the above variables in here
+					float4 _Color2; //Use the above variables in here
 					sampler2D _MainTex;
 
 					//parallax varibles
@@ -43,6 +41,8 @@ Shader "parallax mapping Normalmap" {
 					sampler2D _NormalMap;
 
 					float4 _LightColor0; //From UnityCG
+
+					// specular lighting parameters
 					float4 _SpecColor;
 					float _Shininess;
 
@@ -69,16 +69,12 @@ Shader "parallax mapping Normalmap" {
 
 						//light direction
 						float3 lightDir : TEXCOORD1;
-						
+
 						// view directions
 						float3 viewDir : TEXCOORD2;
 						float3 tangentViewDir: TEXCOORD3;
-		
 
-						float3 Plane_WorldNormal : Normal;
-						
 						float3x3 TBN: TEXCOORD4;
-						//float3 normal : TEXCOORD5;
 					};
 
 					float2 ParallaxOffsetCalc(half3 viewDir, float2 uv)
@@ -95,10 +91,11 @@ Shader "parallax mapping Normalmap" {
 						return ((UNITY_LIGHTMODEL_AMBIENT.rgb * _Color.rgb) * attenuation);
 					}
 
-					float3 diffuse_Reflection(float attenuation, float3 Normal, float3 light) {
+					float3 diffuse_Reflection(float attenuation, float3 normalDirection, float3 lightDirection) {
 						//Diffuse component
-						float3 NormalMapLighting = (attenuation *_LightColor0.rgb * _Color.rgb * max(0.0, dot(Normal, light)));
-						return NormalMapLighting;
+						//return attenuation *_LightColor0.rgb * _Color.rgb * max(0.0, dot(Normal, light));
+						return attenuation * _Color2 * max(0.0, dot(normalDirection, lightDirection));
+
 					}
 					float3 specular_Reflection(float3 lightDirection, float attenuation, float3 normalDirection, float3 viewDirection) {
 						if (dot(normalDirection, lightDirection) < 0.0) //Light on the wrong side - no specular
@@ -123,74 +120,79 @@ Shader "parallax mapping Normalmap" {
 						o.vertex = UnityObjectToClipPos(v.vertex);
 
 
-						// Calculate lightdir
-						//world to tangent space
-						float3 N = mul((float3x3)unity_ObjectToWorld, v.normal); // You don't want to use the translation part on a direction
-						float3 T = mul((float3x3)unity_ObjectToWorld, v.tangent.xyz); // Same here
-						float3 B = cross(N, T) * v.tangent.w; // The w component contains the handedness sign in Unity
-						o.TBN = float3x3(T, B, N);
+						// Calculate lightdir in object space
+						o.lightDir = normalize(mul(unity_WorldToObject, _WorldSpaceLightPos0.xyz));//DIRECTIONAL Light
+
+
+						//object to tangent space matrix
 						
-
-
-
-						//float3 posWorld = mul(unity_ObjectToWorld, v.vertex.xyz);
-						o.lightDir = normalize(_WorldSpaceLightPos0.xyz);//DIRECTIONAL Light
-						
-						float4 objCam = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0));
-						o.viewDir = v.vertex.xyz - objCam.xyz;
-
+						float3 N = v.normal; // You don't want to use the translation part on a direction
+						float3 T = v.tangent.xyz; // Same here
 						float tangentSign = v.tangent.w * unity_WorldTransformParams.w;
-						float3 bitangent = cross(v.normal.xyz, v.tangent.xyz) *tangentSign;
-						o.tangentViewDir = float3(
-							dot(o.viewDir, v.tangent.xyz),
-							dot(o.viewDir, bitangent.xyz),
-							dot(o.viewDir, v.normal.xyz)
-							);
-						o.Plane_WorldNormal = v.normal.xyz;
+						float3 B = cross(N, T) * tangentSign; // The w component contains the handedness sign in Unity
+						o.TBN = float3x3(normalize(T), normalize(B), normalize(N));
+
+						
+						// viewdirection calc
+						float4 objCam = mul(unity_WorldToObject, float4(_WorldSpaceCameraPos, 1.0));
+						o.viewDir = normalize(v.vertex.xyz - objCam.xyz);
+
+						//convert viewdir from object ->  space
+						o.tangentViewDir = normalize(mul(o.TBN, o.viewDir));
 						
 						return o;
 					}
 
 					fixed4 frag(v2f i) : COLOR
 					{
+						//tangent -> object
 						float3x3 TBN_T = transpose(i.TBN);
-						// parallax mapping
-						
-						float2 newT = ParallaxOffsetCalc(i.tangentViewDir, i.uv);
 
+						// parallax mapping
+						float2 newT = ParallaxOffsetCalc(i.tangentViewDir, i.uv);
+						
+
+
+						/* Sampling the textures with offset corrdinate */
+						//main texture
 						float3 tex_albedo = tex2D(_MainTex, newT);
 
-
-						// normal vector in tangen space
+						//normal Texture
+						// normal vector from texture
 						float3 TangentNormal = float3(0,0,0);
-						TangentNormal.xy = tex2D(_NormalMap, i.uv).wy *2 - 1;// remap to 0-1
-						TangentNormal.z = sqrt(1-saturate(dot(TangentNormal.xy,TangentNormal.xy)));
+						//catlike coding stuff
+						TangentNormal.xy = tex2D(_NormalMap, newT).wy * 2 - 1;// remap to 0-1
+						TangentNormal.z = sqrt(1 - saturate(dot(TangentNormal.xy,TangentNormal.xy)));
 						TangentNormal = TangentNormal.xzy;
-						//TangentNormal = mul((float3x3)unity_ObjectToWorld, TangentNormal);
-						//float3 worldNormal = normalize(mul(TBN_T, TangentNormal));
-						
-
-						
-						float attenuation = 1; // no attenuation
-						float3 lightDirection = normalize(i.lightDir);
-						float3 lightDirectionT = normalize(mul(i.TBN, lightDirection));
 
 
+
+						/*NORMALS TO CALC LIGHT*/
+
+						// TBN_T should be tangent space -> object space
+						float3 objectNormalSpeccular = normalize(mul(TBN_T, TangentNormal));
+						// tanget or object??? from normalmap
+						float3 TangentNormalDefused = normalize(TangentNormal);
+
+					
 
 
 						/* lighting */
-						float3 ambientLighting = Ambient_Lighting(attenuation);
+						float3 ambientLighting = Ambient_Lighting(1);
 
-						
+
 						// I_diffuse = I_incoming *K_diffuse *max(0,dot(NORMAL,-LIGHTDIRECTING))
-						float3 diffuseReflection = diffuse_Reflection(attenuation, TangentNormal, lightDirection);
+						float3 diffuseReflection = diffuse_Reflection(1, TangentNormalDefused, i.lightDir);
 
 
 						//Reflection = 2N*(N -> dot L)- L
 						// I_specular = I_incoming* K_speccular * max(0,Reflection, viewDirection)^Shininess
-						//float3 specularReflection = specular_Reflection(lightDirection, attenuation, TangentNormal, i.tangentViewDir);
-						float3 color = ((ambientLighting + diffuseReflection) * tex_albedo);// +specularReflection); //Texture is not applient on specularReflection
-						
+						float3 specularReflection = specular_Reflection(i.lightDir, 1, objectNormalSpeccular, i.viewDir);
+
+
+
+						float3 color = ((ambientLighting + diffuseReflection + specularReflection) * tex_albedo); //Texture is not applient on specularReflection
+
 						return float4(color, 1.0);
 					}
 				ENDCG
