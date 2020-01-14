@@ -7,7 +7,7 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: test2
+  m_Name: Material
   m_Shader: {fileID: 4800000, guid: 6ae9f6e9bb3313549917d4a25ecb467e, type: 3}
   m_ShaderKeywords: 
   m_LightmapFlags: 4
@@ -74,16 +74,16 @@ Material:
     - _Metallic: 0
     - _Mode: 0
     - _OcclusionStrength: 1
-    - _Parallax: 0.0828
-    - _Shininess: 159
+    - _Parallax: 0.0551
+    - _Shininess: 100
     - _SmoothnessTextureChannel: 0
     - _SpecularHighlights: 1
     - _SrcBlend: 1
     - _UVSec: 0
     - _ZWrite: 1
-    - _bias: 0.0687
+    - _bias: -0.0505
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
-    - _Color2: {r: 0, g: 0.23849535, b: 1, a: 1}
+    - _Color2: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
-    - _SpecColor: {r: 1, g: 0, b: 0, a: 1}
+    - _SpecColor: {r: 1, g: 1, b: 1, a: 1}
